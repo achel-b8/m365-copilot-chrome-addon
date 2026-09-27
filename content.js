@@ -13,7 +13,11 @@
     "new chat",
     "start a new chat"
   ];
-  const AUTO_LABELS = ["自動", "auto", "automatic"];
+  const CHAT_LABELS = ["チャット", "chat"];
+  const COWORK_LABELS = ["cowork"];
+  const TASK_HEADING_LABELS = ["タスク", "tasks"];
+  const NEW_TASK_LABELS = ["新しいタスク", "新規タスク", "new task", "create task"];
+  const MODEL_MODE_LABELS = ["think deeper", "より長く考える", "クイック応答", "quick response"];
   const POPUP_SELECTOR = [
     '[role="menu"]',
     '[role="listbox"]',
@@ -124,14 +128,65 @@
   }
 
   function looksLikeAuto(text) {
-    return AUTO_LABELS.some((label) => {
-      const normalizedLabel = normalizeText(label);
-      return text === normalizedLabel || text.includes(normalizedLabel);
+    if (/(^|[\s|·()「」])自動($|[\s|·()「」])/.test(text)) return true;
+    return /\b(auto|automatic)\b/.test(text);
+  }
+
+  function hasModelEvidence(element) {
+    const text = elementText(element);
+    const attributes = normalizeText([
+      element.getAttribute("aria-label"),
+      element.getAttribute("title"),
+      element.getAttribute("data-testid"),
+      element.id,
+      element.className
+    ].join(" "));
+
+    return matchesTarget(text)
+      || looksLikeAuto(text)
+      || /\b(models?|mode)\b/.test(attributes)
+      || attributes.includes("モデル")
+      || MODEL_MODE_LABELS.some((label) => text.includes(normalizeText(label)))
+      || /\b(gpt[\s-]*\d|claude|gemini)\b/.test(text);
+  }
+
+  function hasExactVisibleLabel(selector, labels) {
+    const normalizedLabels = labels.map(normalizeText);
+    return deepQueryAll(selector).some((element) => {
+      if (!isVisible(element)) return false;
+      return normalizedLabels.includes(normalizeText(element.innerText || element.textContent));
     });
+  }
+
+  function isSelectedControl(element) {
+    if (!(element instanceof Element) || !isVisible(element)) return false;
+    const state = normalizeText([
+      element.getAttribute("aria-selected"),
+      element.getAttribute("aria-pressed"),
+      element.getAttribute("data-state"),
+      element.getAttribute("data-selected")
+    ].filter(Boolean).join(" "));
+    return /\b(true|active|selected|on)\b/.test(state);
+  }
+
+  function isCoworkContext() {
+    const route = `${location.pathname}${location.search}${location.hash}`;
+    if (/(^|[\/#?&=_-])(cowork|tasks?)(?=$|[\/#?&=_-])/i.test(route)) return true;
+
+    const coworkSelected = deepQueryAll(CLICKABLE_SELECTOR).some((element) => {
+      const text = normalizeText(element.innerText || element.textContent);
+      return COWORK_LABELS.includes(text) && isSelectedControl(element);
+    });
+    if (coworkSelected) return true;
+
+    const hasTaskHeading = hasExactVisibleLabel('h1,h2,[role="heading"]', TASK_HEADING_LABELS);
+    const hasNewTaskControl = hasExactVisibleLabel(CLICKABLE_SELECTOR, NEW_TASK_LABELS);
+    return hasTaskHeading && hasNewTaskControl;
   }
 
   function modelTriggerScore(element) {
     if (!isVisible(element) || insideVisiblePopup(element)) return -Infinity;
+    if (!hasModelEvidence(element)) return -Infinity;
 
     const text = elementText(element);
     const rect = element.getBoundingClientRect();
@@ -148,7 +203,7 @@
     if (element.hasAttribute("aria-haspopup")) score += 45;
     if (matchesTarget(text)) score += 90;
     if (looksLikeAuto(text)) score += 75;
-    if (/\b(model|models|mode|モデル)\b/.test(attributes)) score += 90;
+    if (/\b(models?|mode)\b/.test(attributes) || attributes.includes("モデル")) score += 90;
     if (/\b(gpt|claude|gemini|openai)\b/.test(text)) score += 35;
     if (rect.top >= 0 && rect.top < 180) score += 45;
     if (rect.height > 18 && rect.height < 80) score += 15;
@@ -225,6 +280,11 @@
   }
 
   async function trySelectModel(runGeneration) {
+    if (isCoworkContext()) {
+      setStatus("paused", "Cowork／タスク画面では自動選択を停止しています");
+      return false;
+    }
+
     const trigger = findModelTrigger();
     if (!trigger) {
       setStatus("waiting", "モデル選択ボタンを待っています");
@@ -286,6 +346,10 @@
 
   function scheduleAttempt(delay = null) {
     if ((!settings.enabled && !manualRun) || completed || running || retryTimer !== null) return;
+    if (isCoworkContext()) {
+      setStatus("paused", "Cowork／タスク画面では自動選択を停止しています");
+      return;
+    }
     if (attemptIndex >= RETRY_DELAYS_MS.length) {
       setStatus("not-found", "モデルを選択できませんでした。拡張アイコンから再実行できます");
       return;
@@ -333,6 +397,25 @@
     return NEW_CHAT_LABELS.some((label) => text.includes(normalizeText(label)));
   }
 
+  function isModeControl(element, labels) {
+    const clickable = element instanceof Element ? element.closest(CLICKABLE_SELECTOR) : null;
+    if (!clickable) return false;
+    const text = normalizeText(clickable.innerText || clickable.textContent);
+    return labels.map(normalizeText).includes(text);
+  }
+
+  function pauseForCowork() {
+    generation += 1;
+    completed = false;
+    manualRun = false;
+    attemptIndex = 0;
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+    setStatus("paused", "Cowork／タスク画面では自動選択を停止しています");
+  }
+
   async function loadSettings() {
     const saved = await chrome.storage.sync.get(DEFAULT_SETTINGS);
     settings = {
@@ -344,6 +427,10 @@
   document.addEventListener("click", (event) => {
     if (isNewChatControl(event.target)) {
       setTimeout(() => beginNewChat("新しいチャット"), 500);
+    } else if (isModeControl(event.target, CHAT_LABELS)) {
+      setTimeout(() => beginNewChat("チャット画面への切り替え"), 500);
+    } else if (isModeControl(event.target, COWORK_LABELS)) {
+      pauseForCowork();
     }
   }, true);
 

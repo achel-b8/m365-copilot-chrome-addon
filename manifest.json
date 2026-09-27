@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Copilot Default Model",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Microsoft Copilot の新規チャットで指定したモデルを自動選択します。",
   "permissions": [
     "storage",
