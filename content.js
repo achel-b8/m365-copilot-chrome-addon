@@ -15,8 +15,22 @@
   ];
   const CHAT_LABELS = ["チャット", "chat"];
   const COWORK_LABELS = ["cowork"];
-  const TASK_HEADING_LABELS = ["タスク", "tasks"];
-  const NEW_TASK_LABELS = ["新しいタスク", "新規タスク", "new task", "create task"];
+  const NON_CHAT_HEADING_LABELS = [
+    "タスク",
+    "tasks",
+    "エージェント ビルダー",
+    "エージェントビルダー",
+    "agent builder",
+    "エージェントを作成",
+    "エージェントの作成",
+    "新しいエージェント",
+    "新規エージェント",
+    "create an agent",
+    "create agent",
+    "new agent"
+  ];
+  const BUILDER_DESCRIBE_LABELS = ["説明", "describe"];
+  const BUILDER_CONFIGURE_LABELS = ["構成", "configure"];
   const MODEL_MODE_LABELS = ["think deeper", "より長く考える", "クイック応答", "quick response"];
   const POPUP_SELECTOR = [
     '[role="menu"]',
@@ -158,30 +172,54 @@
     });
   }
 
+  function hasVisibleLabelFragment(selector, labels) {
+    const normalizedLabels = labels.map(normalizeText);
+    return deepQueryAll(selector).some((element) => {
+      if (!isVisible(element)) return false;
+      const text = normalizeText(element.innerText || element.textContent);
+      return normalizedLabels.some((label) => text === label || text.includes(label));
+    });
+  }
+
   function isSelectedControl(element) {
     if (!(element instanceof Element) || !isVisible(element)) return false;
     const state = normalizeText([
       element.getAttribute("aria-selected"),
       element.getAttribute("aria-pressed"),
+      element.getAttribute("aria-current"),
       element.getAttribute("data-state"),
       element.getAttribute("data-selected")
     ].filter(Boolean).join(" "));
-    return /\b(true|active|selected|on)\b/.test(state);
+    const className = normalizeText(element.className);
+    return /\b(true|active|selected|on|page)\b/.test(state)
+      || /(^|[-_\s])(active|selected)(?=$|[-_\s])/.test(className);
   }
 
-  function isCoworkContext() {
-    const route = `${location.pathname}${location.search}${location.hash}`;
-    if (/(^|[\/#?&=_-])(cowork|tasks?)(?=$|[\/#?&=_-])/i.test(route)) return true;
-
-    const coworkSelected = deepQueryAll(CLICKABLE_SELECTOR).some((element) => {
+  function hasSelectedControl(labels) {
+    return deepQueryAll(CLICKABLE_SELECTOR).some((element) => {
       const text = normalizeText(element.innerText || element.textContent);
-      return COWORK_LABELS.includes(text) && isSelectedControl(element);
+      return labels.includes(text) && isSelectedControl(element);
     });
-    if (coworkSelected) return true;
+  }
 
-    const hasTaskHeading = hasExactVisibleLabel('h1,h2,[role="heading"]', TASK_HEADING_LABELS);
-    const hasNewTaskControl = hasExactVisibleLabel(CLICKABLE_SELECTOR, NEW_TASK_LABELS);
-    return hasTaskHeading && hasNewTaskControl;
+  function isStandardChatContext() {
+    const route = `${location.pathname}${location.search}${location.hash}`;
+    if (/(^|[\/#?&=_-])(cowork|tasks?|agents?|agent-builder|builder)(?=$|[\/#?&=_-])/i.test(route)) {
+      return false;
+    }
+
+    if (hasSelectedControl(COWORK_LABELS)) return false;
+    if (hasVisibleLabelFragment('h1,h2,h3,[role="heading"],[role="dialog"]', NON_CHAT_HEADING_LABELS)) {
+      return false;
+    }
+
+    const hasBuilderDescribeTab = hasExactVisibleLabel('[role="tab"],button', BUILDER_DESCRIBE_LABELS);
+    const hasBuilderConfigureTab = hasExactVisibleLabel('[role="tab"],button', BUILDER_CONFIGURE_LABELS);
+    if (hasBuilderDescribeTab && hasBuilderConfigureTab) return false;
+
+    const chatSelected = hasSelectedControl(CHAT_LABELS);
+    const chatRoute = /(^|\/)chat(?:\/|$)/i.test(location.pathname);
+    return chatSelected || chatRoute;
   }
 
   function modelTriggerScore(element) {
@@ -197,6 +235,11 @@
       element.id,
       element.className
     ].join(" "));
+    const isTopBarControl = rect.top >= 0 && rect.top < 180;
+    const hasExplicitModelAttribute = /\b(models?|mode)\b/.test(attributes) || attributes.includes("モデル");
+
+    if (!isTopBarControl && !hasExplicitModelAttribute) return -Infinity;
+
     let score = 0;
 
     if (element.tagName === "BUTTON") score += 25;
@@ -280,8 +323,8 @@
   }
 
   async function trySelectModel(runGeneration) {
-    if (isCoworkContext()) {
-      setStatus("paused", "Cowork／タスク画面では自動選択を停止しています");
+    if (!isStandardChatContext()) {
+      setStatus("paused", "Chat 画面以外では自動選択を停止しています");
       return false;
     }
 
@@ -304,6 +347,11 @@
     }
 
     for (let step = 0; step < 4 && generation === runGeneration; step += 1) {
+      if (!isStandardChatContext()) {
+        pauseOutsideChat();
+        return false;
+      }
+
       const currentTrigger = findModelTrigger() || trigger;
       if (matchesTarget(elementText(currentTrigger))) {
         completed = true;
@@ -346,8 +394,8 @@
 
   function scheduleAttempt(delay = null) {
     if ((!settings.enabled && !manualRun) || completed || running || retryTimer !== null) return;
-    if (isCoworkContext()) {
-      setStatus("paused", "Cowork／タスク画面では自動選択を停止しています");
+    if (!isStandardChatContext()) {
+      setStatus("paused", "Chat 画面以外では自動選択を停止しています");
       return;
     }
     if (attemptIndex >= RETRY_DELAYS_MS.length) {
@@ -404,7 +452,7 @@
     return labels.map(normalizeText).includes(text);
   }
 
-  function pauseForCowork() {
+  function pauseOutsideChat() {
     generation += 1;
     completed = false;
     manualRun = false;
@@ -413,7 +461,7 @@
       clearTimeout(retryTimer);
       retryTimer = null;
     }
-    setStatus("paused", "Cowork／タスク画面では自動選択を停止しています");
+    setStatus("paused", "Chat 画面以外では自動選択を停止しています");
   }
 
   async function loadSettings() {
@@ -430,7 +478,7 @@
     } else if (isModeControl(event.target, CHAT_LABELS)) {
       setTimeout(() => beginNewChat("チャット画面への切り替え"), 500);
     } else if (isModeControl(event.target, COWORK_LABELS)) {
-      pauseForCowork();
+      pauseOutsideChat();
     }
   }, true);
 
