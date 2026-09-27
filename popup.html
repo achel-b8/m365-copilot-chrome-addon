@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Copilot Default Model</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <div class="heading">
+        <div class="mark" aria-hidden="true">S</div>
+        <div>
+          <h1>Copilot Default Model</h1>
+          <p>新規チャットのモデルを自動選択</p>
+        </div>
+      </div>
+
+      <label class="toggle-row">
+        <span>
+          <strong>自動選択</strong>
+          <small>新しいチャットを開いたときに実行</small>
+        </span>
+        <input id="enabled" type="checkbox" role="switch" checked>
+      </label>
+
+      <label class="field" for="target-model">
+        <span>選択するモデル</span>
+        <input id="target-model" type="text" value="GPT 6.0 Sol" spellcheck="false">
+      </label>
+
+      <button id="run-now" type="button">このチャットで今すぐ選択</button>
+      <p id="status" class="status" aria-live="polite">状態を確認しています…</p>
+      <p class="hint">モデル名は Copilot のメニュー表示と同じ文字にしてください。</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

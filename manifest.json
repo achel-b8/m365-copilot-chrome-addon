@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Copilot Default Model",
+  "version": "1.0.0",
+  "description": "Microsoft Copilot の新規チャットで指定したモデルを自動選択します。",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "action": {
+    "default_title": "Copilot Default Model",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://copilot.cloud.microsoft/*",
+        "https://m365.cloud.microsoft/*",
+        "https://www.microsoft365.com/*",
+        "https://www.office.com/*",
+        "https://copilot.microsoft.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
